@@ -1,0 +1,1 @@
+you will need to install MSVC and at least one Windows 10/11 SDK to compile cython
