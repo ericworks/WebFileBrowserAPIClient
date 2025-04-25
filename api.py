@@ -264,15 +264,19 @@ def check_remote_exists(token, target_path) -> bool:
     return current_file is not None
 
 
-def get_file_info(token, target_path):
+def get_file_info(token, target_path, allow_empty=True):
     if target_path.startswith('/'):
         target_path = target_path[1:]
     response = requests.get(f"{API_URL}/resources/{target_path}", headers={'X-Auth': token},
                             verify=not DISABLE_VERIFY)
     logger.debug(f"status code: {response.status_code}")
     if not response.ok:
-        logger.error(f'get_file_info response: {response.text}')
-        exit(18)
+        logger.debug(f'get_file_info response: {response.text}')
+        if allow_empty and response.status_code == 404:
+            return None, []
+        else:
+            logger.error(f"Error while getting file info: {response.status_code} - {response.text}")
+            exit(18)
     decoded = json.loads(response.text)
     current_file = FileItem(decoded['name'], decoded['size'], decoded['path'], decoded['extension'],
                             decoded['modified'], decoded['mode'], decoded['isDir'], decoded['isSymlink'],
@@ -420,7 +424,7 @@ def main():
         logger.info(get_download_link(token, args.target_path))
 
     elif args.command == 'getfileinfo':
-        current, children = get_file_info(token, args.target_path)
+        current, children = get_file_info(token, args.target_path, False)
         logger.info(repr(current))
         [logger.info(repr(child)) for child in children]
     # TODO delete file/folder sub-command
