@@ -72,7 +72,7 @@ def get_token():
         return response.content.decode(response.encoding or 'utf-8')
     except requests.exceptions.RequestException as error:
         logger.error(f"Error while requesting access token: {str(error)}")
-        return None
+        exit(13)
 
 
 def create_folder(token: str, target_path: str, override=False):
@@ -101,10 +101,12 @@ def create_folder(token: str, target_path: str, override=False):
         }
         response = requests.post(request_url, headers=request_headers, verify=not DISABLE_VERIFY)
         response.raise_for_status()
-        if response.ok:
-            logger.info(f'Folder created successfully at {target_path}.')
+
+        logger.info(f'Folder created successfully at {target_path}.')
+
     except requests.exceptions.RequestException as error:
         logger.error(f"Error while creating folder at {target_path}: {str(error)}")
+        exit(15)
 
 
 # Function to upload a chunk of the file
@@ -132,7 +134,7 @@ def upload_file(token, file_path, target_path, override=False, max_attempts=3, c
     logger.info(f'Uploading file {file_path} to remote {target_path}')
     if check_remote_exists(token, target_path):
         logger.error(f'Remote path already exists at {target_path}. Aborting.')
-        sys.exit(1)
+        exit(11)
     request_url = f'{API_URL}/tus/{target_path}?override={str(override)}'
     failure = False
     expected_file_size = -1 if os.path.isdir(file_path) else os.path.getsize(file_path)
@@ -207,6 +209,7 @@ def upload_file(token, file_path, target_path, override=False, max_attempts=3, c
         if failure:
             logger.info('deleting unfinished file because of a failure...')
             delete_file(token, target_path, expected_file_size)
+            exit(16)
         else:
             logger.info('file uploaded successfully.')
 
@@ -214,7 +217,7 @@ def upload_file(token, file_path, target_path, override=False, max_attempts=3, c
 def upload_file_or_folder(token, file_path, target_path, override=False, max_attempts=3, chunk_size=10485760):
     if not os.path.exists(file_path):
         logger.error(f"Local file '{file_path}' does not exist. Aborting.")
-        sys.exit(-1)
+        exit(12)
 
     # now starts the os walk
     if not os.path.isdir(file_path):
@@ -268,8 +271,8 @@ def get_file_info(token, target_path):
                             verify=not DISABLE_VERIFY)
     logger.debug(f"status code: {response.status_code}")
     if not response.ok:
-        logger.debug(f'get_file_info response: {response.text}')
-        return None, []
+        logger.error(f'get_file_info response: {response.text}')
+        exit(18)
     decoded = json.loads(response.text)
     current_file = FileItem(decoded['name'], decoded['size'], decoded['path'], decoded['extension'],
                             decoded['modified'], decoded['mode'], decoded['isDir'], decoded['isSymlink'],
@@ -308,6 +311,7 @@ def download_file(token, target_path, local_download_path, chunk_size=10485760):
         logger.info('File downloaded successfully.')
     except requests.exceptions.RequestException as error:
         logger.error('Error while requesting file download:', error)
+        exit(19)
 
 
 # Function to configure the logger level
@@ -399,46 +403,32 @@ def main():
         else:
             configure_logging(to_file=False, to_stdout=False)
 
+    token_data = get_token()
+    if not token_data:
+        logger.error('No access token received. Aborting.')
+        exit(20)
+    token = token_data
     # parse commands
     if args.command == 'upload':
-        token_data = get_token()
-        if token_data:
-            token = token_data
-            upload_file_or_folder(token, args.file_path, args.target_path, args.override, args.max_attempts,
-                                  args.chunk_size)
-        else:
-            logger.error('No access token received. Aborting.')
+        upload_file_or_folder(token, args.file_path, args.target_path, args.override, args.max_attempts,
+                              args.chunk_size)
 
     elif args.command == 'download':
-        token_data = get_token()
-        if token_data:
-            token = token_data
-            download_file(token, args.target_path, args.local_download_path, args.chunk_size)
-        else:
-            logger.error('No access token received. Aborting.')
+        download_file(token, args.target_path, args.local_download_path, args.chunk_size)
 
     elif args.command == 'getdownloadlink':
-        token_data = get_token()
-        if token_data:
-            token = token_data
-            logger.info(get_download_link(token, args.target_path))
-        else:
-            logger.error('No access token received. Aborting.')
+        logger.info(get_download_link(token, args.target_path))
 
     elif args.command == 'getfileinfo':
-        token_data = get_token()
-        if token_data:
-            token = token_data
-            current, children = get_file_info(token, args.target_path)
-            logger.info(repr(current))
-            [logger.info(repr(child)) for child in children]
-        else:
-            logger.error('No access token received. Aborting.')
+        current, children = get_file_info(token, args.target_path)
+        logger.info(repr(current))
+        [logger.info(repr(child)) for child in children]
     # TODO delete file/folder sub-command
     else:
         logger.error('Invalid command. Aborting.')
+        exit(17)
 
-    sys.exit(0)
+    exit(0)
 
 
 # Start the program
